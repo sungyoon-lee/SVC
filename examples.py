@@ -12,24 +12,25 @@ import sklearn.metrics.pairwise as kernels
 from scipy.linalg import inv
 from scipy.sparse import csgraph as cg
 from IPython import embed
-from SVC_young import *
+from SVC_init import *
 
-data_name='ring'
-input = load_data(data_name)
-print(input)
-print("with data",data_name)
-support = "GP"
-supportopt = {'ker': 'rbf', 'arg': 0.5, 'C': 0.5}
+data_path='data/ring'
+input = load_data(data_path)
+print(input.shape)
+print("with data",data_path)
+support = "SVDD"
+hyperparams = {'ker': 'rbf', 'arg': 0.5, 'C': 0.5}
 
-hyperparams = [100*np.ones((input.shape[0],1)), 1, 10]
+#hyperparams = [100*np.ones((input.shape[0],1)), 1, 10]
 st=time.time()
-model = supportmodel(input,support, supportopt, hyperparams)
+model = supportmodel(input,support, hyperparams)
 et=time.time()
 print("Training time:", et-st)
 print("---------------------------------")
-labmodel = labeling(model,"CG-SC")
-labmodel.run() 
+labmodel = labeling(model,"S-MSC")
+#labmodel.run() 
 et1=time.time()
 print("Labeling time:", et1-et)
 print("---------------------------------")
+print(labmodel.cluster_label)
 embed()
