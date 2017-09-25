@@ -44,7 +44,11 @@ my_R_GP
 
 
 def kradius(X, model):
-    d = np.zeros([X.shape[1], 1])
+
+    # % KRADIUS computes the squared distance between vector in kernel space
+    # % and the center of support.
+
+    d = np.zeros([X.shape[1], 1])  ######################
     if model.support == 'SVDD':
         [dim, num_data] = X.shape
         x2 = diagker(X, model.svdd_params['ker'], model.svdd_params['arg'])
@@ -129,10 +133,8 @@ def load_data(data_path):
     data = sio.loadmat(data_path)
     if data == 'toy':
         input = data['X']
-    elif data == 'ring':
-        input = data['input']
     else:
-        input = data['train_input'].T
+        input = data['input'].T
     return input
 
 
@@ -190,6 +192,42 @@ class supportmodel:
         self.normalized_input = (self.input - np.tile(min_val, [dim, num])) / np.tile(max_val - min_val, [dim, num])
 
     def gp(self):  ###using var_gpr
+        ## Gaussian Process Support Function for Clustering
+        ##
+        ##  Gaussian process support function which is the variance function of a
+        ##  predictive distribution of GPR :
+        ##   sigma^2(x) = kappa - k'C^(-1)k
+        ##  where covariance matrix C(i,j) is a parameterized function of x(i) and
+        ##  x(j) with hyperparameters Theta, C(i,j) = C(x(i),x(j);Theta),
+        ##  kappa = C(x~,x~;Theta) for a new data point x~ = x(n+1),
+        ##  k = [C(x~,x1;Theta),...,C(x~,x(n);Theta)]
+        ##
+        ## Synopsis:
+        ##  model = gp(input)
+        ##  model = gp(input,hyperparams)
+        ##
+        ## Description :
+        ## It computes variance function of gaussian process regression learned from
+        ## a training data which can be an estimate of the support of a probability
+        ## density function. A dynamic process associated with the variance function
+        ## can be built and applied to cluster labeling of the data points. The
+        ## variance function estimates the support region by sigma^2 <= theta, where
+        ## theta = max(sigma^2(x))
+        ##
+        ## Input:
+        ##  input [dim x num_data] Input data.
+        ##  hyperparams [(num_data + 2) x 1]
+        ##
+        ## Output:
+        ##  model [struct] Center of the ball in the kernel feature space:
+        ##   .input [dim x num_data]
+        ##   .X [num_data x dim]
+        ##   .hyperparams [(num_data + 2) x 1]
+        ##   .inside_ind [1 x num_data] : all input points are required to be used for computing
+        ##   support function value.
+        ##   .inv_C [num_data x num_data] : inverse of a covariance matrix C for the training inputs
+        ##   .r : support function level with which covers estimated support region
+
         print("---------------------------------")
         print('Step 1 : Training Support Function by GP...')
 
@@ -322,12 +360,39 @@ class labeling:
         print("Labeling Completed!")
 
     def findAdjMatrix(self, input):
+        # %==========================================================================
+        # % FindAdjMatrix: Caculating adjacency matrix
+        # %
+        # % Input:
+        # %  X [dim x num_data] Input data.
+        # %  model [struct] obtained from svdd.m
+        # %
+        # % Output:
+        # %  adjacent [num_data x num_data]
+        # %     1 for connected, 0 for disconnected (violated), -1 (outliers, BSV)
+        # %
+        # % Description
+        # %	The Adjacency matrix between pairs of points whose images lie in
+        # %	or on the sphere in feature space.
+        # %	(i.e. points that belongs to one of the clusters in the data space)
+        # %
+        # %	given a pair of data points that belong to different clusters,
+        # %	any path that connects them must exit from the sphere in feature
+        # %	space. Such a path contains a line segment of points y, such that:
+        # %	kdist2(y,model)>model.r.
+        # %	Checking the line segment is implemented by sampling a number of
+        # %   points (10 points).
+        # %
+        # %	BSVs are unclassfied by this procedure, since their feature space
+        # %	images lie outside the enclosing sphere.( adjcent(bsv,others)=-1 )
+        # %
+        # % samples are column vectors
         model = self.supportmodel
         N = input.shape[1]
         t1 = time.time()
         adjacent = np.zeros([N, N])
         R = model.R + 10 ** (-7)  # % Squared radius of the minimal enclosing ball
-        self.lineseg=[]
+
         for i in range(N):  ##rows
             for j in range(N):  ##columns
                 ## if the j is adjacent to i - then all j adjacent's are also adjacent to i.
@@ -342,14 +407,13 @@ class labeling:
                     if (adjacent[i, j] != 1):
                         ## goes over 10 points in the interval between these 2 Sample points
                         adj_flag = 1  ## unless a point on the path exits the shpere - the points are adjacnet
-                        for interval in [0.5,0.6,0.4,0.7,0.3,0.8,0.2,0.9,0.1]:
+                        for interval in {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9}:
                             z = input[:, i] + interval * (input[:, j] - input[:, i])
                             z = np.reshape(z, [-1, 1])
                             ## calculates the sub-point distance from the sphere's center
                             d = kradius(z, model)
                             if d > R:
                                 adj_flag = 0
-                                self.lineseg.append(interval)
                                 break
                         if adj_flag == 1:
                             adjacent[i, j] = 1
@@ -419,7 +483,9 @@ class labeling:
         [rep_locals, locals, local_val, match_local] = self.findSEPs()
         print("time to find SEPs = ", time.time() - t1)
         # %% Step 2 : Labeling Data for Clustering
+
         self.findAdjMatrix(locals.T)
+
         # Finds the cluster assignment of each data point
         # clusters = findConnectedComponents(self.adjacent_matrix)
         csm = cg.connected_components(self.adjacent_matrix)
